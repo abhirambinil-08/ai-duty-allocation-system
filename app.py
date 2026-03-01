@@ -54,7 +54,6 @@ def generate_slot_duty(rooms, teachers, slots):
 
 def generate_centre_duty(num_rooms, teachers):
     random.shuffle(teachers)
-
     data = []
     index = 0
 
@@ -76,12 +75,18 @@ def generate_centre_duty(num_rooms, teachers):
 
 def export_excel(df):
     buffer = BytesIO()
+
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False)
-        ws = writer.active
-        for i, col in enumerate(df.columns, 1):
-            length = max(df[col].astype(str).map(len).max(), len(col))
-            ws.column_dimensions[get_column_letter(i)].width = length + 3
+        df.to_excel(writer, index=False, sheet_name="Duty List")
+        worksheet = writer.sheets["Duty List"]
+
+        for i, column in enumerate(df.columns, 1):
+            max_length = max(
+                df[column].astype(str).map(len).max(),
+                len(column)
+            )
+            worksheet.column_dimensions[get_column_letter(i)].width = max_length + 3
+
     buffer.seek(0)
     return buffer
 
@@ -133,7 +138,7 @@ def export_pdf(df, header_lines):
 
     data = [df.columns.tolist()] + df.values.tolist()
     col_width = (landscape(A4)[0] - 40) / len(df.columns)
-    table = Table(data, colWidths=[col_width]*len(df.columns), repeatRows=1)
+    table = Table(data, colWidths=[col_width] * len(df.columns), repeatRows=1)
 
     table.setStyle([
         ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
@@ -160,8 +165,9 @@ st.title("🤖 AI-Based Examination Duty Allocation System")
 
 page = st.radio("Select Duty Format", ["Slot-Based Duty Plan", "Centre Invigilator Format"])
 
+
 # ==========================================================
-# SLOT BASED PAGE
+# SLOT-BASED DUTY PLAN
 # ==========================================================
 
 if page == "Slot-Based Duty Plan":
@@ -190,15 +196,12 @@ if page == "Slot-Based Duty Plan":
         result, max_duty = generate_slot_duty(rooms, teachers, num_slots)
 
         df = pd.DataFrame(result).T
-        df.columns = [
-            f"Slot {i+1} ({slot_timings[i]})"
-            for i in range(num_slots)
-        ]
-
+        df.columns = [f"Slot {i+1} ({slot_timings[i]})" for i in range(num_slots)]
         df.insert(0, "Room", df.index)
-        df.insert(0, "S.No", range(1, len(df)+1))
+        df.insert(0, "S.No", range(1, len(df) + 1))
         df.reset_index(drop=True, inplace=True)
 
+        st.success(f"Max Duties per Teacher: {max_duty}")
         st.dataframe(df, width="stretch")
 
         header = [
@@ -207,13 +210,13 @@ if page == "Slot-Based Duty Plan":
             f"Duty List for {duty_date} – {exam_title}"
         ]
 
-        st.download_button("Excel", export_excel(df), "Slot_Duty.xlsx")
-        st.download_button("Word", export_word(df, header), "Slot_Duty.docx")
-        st.download_button("PDF", export_pdf(df, header), "Slot_Duty.pdf")
+        st.download_button("📥 Excel", export_excel(df), "Slot_Duty.xlsx")
+        st.download_button("📄 Word", export_word(df, header), "Slot_Duty.docx")
+        st.download_button("📑 PDF", export_pdf(df, header), "Slot_Duty.pdf")
 
 
 # ==========================================================
-# CENTRE INVIGILATOR PAGE
+# CENTRE INVIGILATOR FORMAT
 # ==========================================================
 
 if page == "Centre Invigilator Format":
@@ -221,7 +224,6 @@ if page == "Centre Invigilator Format":
     school_name = st.text_input("School Name")
     school_address = st.text_input("School Address")
     centre_no = st.text_input("Centre Number")
-    exam_title = st.text_input("Exam Title")
     duty_date = st.date_input("Duty Date")
 
     num_rooms = st.number_input("Number of Rooms", min_value=1, max_value=50)
@@ -242,10 +244,10 @@ if page == "Centre Invigilator Format":
         header = [
             school_name,
             school_address,
-            f"CENTRE NO.: {centre_no}",
+            f"CENTRE NO: {centre_no}",
             f"DUTY LIST FOR {duty_date}"
         ]
 
-        st.download_button("Excel", export_excel(df), "Centre_Duty.xlsx")
-        st.download_button("Word", export_word(df, header), "Centre_Duty.docx")
-        st.download_button("PDF", export_pdf(df, header), "Centre_Duty.pdf")
+        st.download_button("📥 Excel", export_excel(df), "Centre_Duty.xlsx")
+        st.download_button("📄 Word", export_word(df, header), "Centre_Duty.docx")
+        st.download_button("📑 PDF", export_pdf(df, header), "Centre_Duty.pdf")
