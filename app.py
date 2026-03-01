@@ -3,15 +3,15 @@ import pandas as pd
 import random
 import math
 from io import BytesIO
-from typing import List, Tuple
 from docx import Document
 from docx.enum.section import WD_ORIENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt
 from openpyxl.utils import get_column_letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 
 
 # ==========================================================
@@ -75,76 +75,117 @@ def generate_centre_duty(num_rooms, teachers):
 
 def export_excel(df):
     buffer = BytesIO()
-
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Duty List")
         worksheet = writer.sheets["Duty List"]
 
         for i, column in enumerate(df.columns, 1):
-            max_length = max(
-                df[column].astype(str).map(len).max(),
-                len(column)
-            )
+            max_length = max(df[column].astype(str).map(len).max(), len(column))
             worksheet.column_dimensions[get_column_letter(i)].width = max_length + 3
 
     buffer.seek(0)
     return buffer
 
 
-def export_word(df, header_lines):
+# =================== WORD (CBSE STYLE) ===================
+
+def export_word_cbse(df, school_name, school_address, centre_no, duty_date):
+
     buffer = BytesIO()
     doc = Document()
 
     section = doc.sections[0]
-    section.orientation = WD_ORIENT.LANDSCAPE
-    section.page_width, section.page_height = section.page_height, section.page_width
+    section.orientation = WD_ORIENT.PORTRAIT
 
-    for line in header_lines:
-        p = doc.add_paragraph(line)
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    style = doc.styles['Normal']
+    style.font.name = 'Times New Roman'
+    style.font.size = Pt(12)
+
+    # Header
+    p = doc.add_paragraph()
+    run = p.add_run(school_name.upper())
+    run.bold = True
+    run.font.size = Pt(14)
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    p = doc.add_paragraph(school_address.upper())
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    p = doc.add_paragraph(f"CENTRE NO.: {centre_no}")
+    p.runs[0].bold = True
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    p = doc.add_paragraph(f"DUTY LIST FOR {duty_date}")
+    p.runs[0].bold = True
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     doc.add_paragraph(" ")
 
-    table = doc.add_table(rows=df.shape[0] + 1, cols=df.shape[1])
+    # Table
+    table = doc.add_table(rows=df.shape[0] + 2, cols=5)
     table.style = "Table Grid"
 
-    for col in range(df.shape[1]):
-        table.rows[0].cells[col].text = str(df.columns[col])
+    table.rows[0].cells[0].text = "ROOM"
+    table.rows[0].cells[1].text = "1"
+    table.rows[0].cells[2].text = "SIGN"
+    table.rows[0].cells[3].text = "2"
+    table.rows[0].cells[4].text = "SIGN"
 
-    for row in range(df.shape[0]):
-        for col in range(df.shape[1]):
-            table.rows[row + 1].cells[col].text = str(df.iat[row, col])
+    table.rows[1].cells[1].merge(table.rows[1].cells[3])
+    table.rows[1].cells[1].text = "NAME OF INVIGILATOR"
 
-    doc.add_paragraph("\nPRINCIPAL")
-    doc.add_paragraph(f"Generated on: {pd.Timestamp.now().date()}")
+    for i in range(df.shape[0]):
+        table.rows[i+2].cells[0].text = str(df.iloc[i, 0])
+        table.rows[i+2].cells[1].text = str(df.iloc[i, 1])
+        table.rows[i+2].cells[3].text = str(df.iloc[i, 3])
+
+    doc.add_paragraph("\nStaff on frisking duty :")
+    doc.add_paragraph("From 09:35 am to 10:00 am")
+
+    doc.add_paragraph("\nAns. books deposit to CBSE: ____________________")
+
+    doc.add_paragraph(
+        "\nWitness duty at 09:50 am for opening of sealed question paper packets in Principal’s Room:"
+    )
+    doc.add_paragraph("______________________________________")
+
+    doc.add_paragraph("\nCentre Visit Duty at 08:45 am:")
+    doc.add_paragraph("______________________________________")
+
+    doc.add_paragraph("\n")
+    doc.add_paragraph(str(duty_date))
+
+    p = doc.add_paragraph("PRINCIPAL")
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     doc.save(buffer)
     buffer.seek(0)
     return buffer
 
 
-def export_pdf(df, header_lines):
-    buffer = BytesIO()
+# =================== PDF (CBSE STYLE) ===================
 
-    pdf = SimpleDocTemplate(buffer, pagesize=landscape(A4))
+def export_pdf_cbse(df, school_name, school_address, centre_no, duty_date):
+
+    buffer = BytesIO()
+    pdf = SimpleDocTemplate(buffer, pagesize=A4)
     elements = []
     style = getSampleStyleSheet()
 
-    for line in header_lines:
-        elements.append(Paragraph(f"<b>{line}</b>", style["Title"]))
-        elements.append(Spacer(1, 6))
-
+    elements.append(Paragraph(f"<b>{school_name.upper()}</b>", style["Title"]))
+    elements.append(Paragraph(school_address.upper(), style["Normal"]))
+    elements.append(Paragraph(f"<b>CENTRE NO.: {centre_no}</b>", style["Normal"]))
+    elements.append(Paragraph(f"<b>DUTY LIST FOR {duty_date}</b>", style["Normal"]))
     elements.append(Spacer(1, 12))
 
     data = [df.columns.tolist()] + df.values.tolist()
-    col_width = (landscape(A4)[0] - 40) / len(df.columns)
-    table = Table(data, colWidths=[col_width] * len(df.columns), repeatRows=1)
+    table = Table(data, repeatRows=1)
 
     table.setStyle([
         ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
         ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
     ])
 
     elements.append(table)
@@ -161,34 +202,20 @@ def export_pdf(df, header_lines):
 # ==========================================================
 
 st.set_page_config(layout="wide")
-st.title("🤖 AI-Based Examination Duty Allocation System")
+st.title("AI-Based Examination Duty Allocation System")
 
-page = st.radio("Select Duty Format", ["Slot-Based Duty Plan", "Centre Invigilator Format"])
+page = st.radio("Select Format", ["Slot-Based Plan", "CBSE Centre Sheet"])
 
 
-# ==========================================================
-# SLOT-BASED DUTY PLAN
-# ==========================================================
+# ================= SLOT PLAN =================
 
-if page == "Slot-Based Duty Plan":
-
-    school_name = st.text_input("School Name")
-    school_address = st.text_input("School Address")
-    exam_title = st.text_input("Exam Title")
-    duty_date = st.date_input("Duty Date")
+if page == "Slot-Based Plan":
 
     num_slots = st.number_input("Number of Slots", min_value=1, max_value=10)
-
-    slot_timings = []
-    for i in range(num_slots):
-        start = st.text_input(f"Slot {i+1} Start", key=f"s{i}")
-        end = st.text_input(f"Slot {i+1} End", key=f"e{i}")
-        slot_timings.append(f"{start}-{end}" if start and end else "")
-
     teachers_input = st.text_area("Teacher Names (comma separated)")
     rooms_input = st.text_area("Room Names (comma separated)")
 
-    if st.button("Generate Slot Duty Plan"):
+    if st.button("Generate Slot Plan"):
 
         teachers = [t.strip() for t in teachers_input.split(",") if t.strip()]
         rooms = [r.strip() for r in rooms_input.split(",") if r.strip()]
@@ -196,30 +223,18 @@ if page == "Slot-Based Duty Plan":
         result, max_duty = generate_slot_duty(rooms, teachers, num_slots)
 
         df = pd.DataFrame(result).T
-        df.columns = [f"Slot {i+1} ({slot_timings[i]})" for i in range(num_slots)]
+        df.columns = [f"Slot {i+1}" for i in range(num_slots)]
         df.insert(0, "Room", df.index)
         df.insert(0, "S.No", range(1, len(df) + 1))
         df.reset_index(drop=True, inplace=True)
 
         st.success(f"Max Duties per Teacher: {max_duty}")
-        st.dataframe(df, width="stretch")
-
-        header = [
-            school_name,
-            school_address,
-            f"Duty List for {duty_date} – {exam_title}"
-        ]
-
-        st.download_button("📥 Excel", export_excel(df), "Slot_Duty.xlsx")
-        st.download_button("📄 Word", export_word(df, header), "Slot_Duty.docx")
-        st.download_button("📑 PDF", export_pdf(df, header), "Slot_Duty.pdf")
+        st.dataframe(df)
 
 
-# ==========================================================
-# CENTRE INVIGILATOR FORMAT
-# ==========================================================
+# ================= CBSE CENTRE SHEET =================
 
-if page == "Centre Invigilator Format":
+if page == "CBSE Centre Sheet":
 
     school_name = st.text_input("School Name")
     school_address = st.text_input("School Address")
@@ -229,7 +244,7 @@ if page == "Centre Invigilator Format":
     num_rooms = st.number_input("Number of Rooms", min_value=1, max_value=50)
     teachers_input = st.text_area("Teacher Names (comma separated)")
 
-    if st.button("Generate Centre Duty Sheet"):
+    if st.button("Generate Centre Sheet"):
 
         teachers = [t.strip() for t in teachers_input.split(",") if t.strip()]
 
@@ -238,16 +253,22 @@ if page == "Centre Invigilator Format":
             st.stop()
 
         df = generate_centre_duty(num_rooms, teachers)
+        st.dataframe(df)
 
-        st.dataframe(df, width="stretch")
+        st.download_button(
+            "Download Excel",
+            export_excel(df),
+            "Centre_Duty.xlsx"
+        )
 
-        header = [
-            school_name,
-            school_address,
-            f"CENTRE NO: {centre_no}",
-            f"DUTY LIST FOR {duty_date}"
-        ]
+        st.download_button(
+            "Download Word (CBSE Format)",
+            export_word_cbse(df, school_name, school_address, centre_no, duty_date),
+            "Centre_Duty.docx"
+        )
 
-        st.download_button("📥 Excel", export_excel(df), "Centre_Duty.xlsx")
-        st.download_button("📄 Word", export_word(df, header), "Centre_Duty.docx")
-        st.download_button("📑 PDF", export_pdf(df, header), "Centre_Duty.pdf")
+        st.download_button(
+            "Download PDF (CBSE Format)",
+            export_pdf_cbse(df, school_name, school_address, centre_no, duty_date),
+            "Centre_Duty.pdf"
+        )
