@@ -66,7 +66,7 @@ def generate_centre_duty(num_rooms, teachers):
 
     return pd.DataFrame(
         data,
-        columns=["ROOM", "INVIGILATOR 1", "SIGN", "INVIGILATOR 2", "SIGN"]
+        columns=["ROOM", "INVIGILATOR 1", "SIGN 1", "INVIGILATOR 2", "SIGN 2"]
     )
 
 
