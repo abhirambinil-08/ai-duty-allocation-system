@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 from io import BytesIO
+from datetime import datetime, timedelta
 from docx import Document
 from docx.enum.section import WD_ORIENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -13,7 +14,7 @@ from reportlab.lib.pagesizes import A4, landscape
 
 
 # ==========================================================
-# BUSINESS LOGIC (Balanced Distribution)
+# BUSINESS LOGIC (Balanced + No Consecutive Slots)
 # ==========================================================
 
 def generate_slot_duty(rooms, teachers, slots):
@@ -25,7 +26,7 @@ def generate_slot_duty(rooms, teachers, slots):
     base_duty = total_duties // len(teachers)
     extra = total_duties % len(teachers)
 
-    # Teachers get either base_duty or base_duty + 1
+    # Equal or +1 distribution
     duty_limit = {
         teacher: base_duty + (1 if i < extra else 0)
         for i, teacher in enumerate(teachers)
@@ -34,13 +35,17 @@ def generate_slot_duty(rooms, teachers, slots):
     duty_table = {room: [""] * slots for room in rooms}
     teacher_count = {t: 0 for t in teachers}
     slot_assignments = {slot: [] for slot in range(slots)}
+    teacher_last_slot = {t: -2 for t in teachers}
 
     teacher_index = 0
 
-    for room in rooms:
-        for slot in range(slots):
+    # Slot-first loop to manage consecutive restriction
+    for slot in range(slots):
+        for room in rooms:
 
             attempts = 0
+            assigned = False
+
             while attempts < len(teachers):
 
                 teacher = teachers[teacher_index % len(teachers)]
@@ -51,13 +56,16 @@ def generate_slot_duty(rooms, teachers, slots):
                     teacher_count[teacher] < duty_limit[teacher]
                     and teacher not in slot_assignments[slot]
                     and teacher not in duty_table[room]
+                    and teacher_last_slot[teacher] != slot - 1
                 ):
                     duty_table[room][slot] = teacher
                     teacher_count[teacher] += 1
                     slot_assignments[slot].append(teacher)
+                    teacher_last_slot[teacher] = slot
+                    assigned = True
                     break
 
-            if duty_table[room][slot] == "":
+            if not assigned:
                 duty_table[room][slot] = "No Available Teacher"
 
     return duty_table, teacher_count, max(duty_limit.values())
@@ -69,16 +77,12 @@ def generate_slot_duty(rooms, teachers, slots):
 
 def export_excel(df):
     buffer = BytesIO()
-
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Duty List")
         worksheet = writer.sheets["Duty List"]
 
         for i, column in enumerate(df.columns, 1):
-            max_length = max(
-                df[column].astype(str).map(len).max(),
-                len(column)
-            )
+            max_length = max(df[column].astype(str).map(len).max(), len(column))
             worksheet.column_dimensions[get_column_letter(i)].width = max_length + 3
 
     buffer.seek(0)
@@ -119,7 +123,6 @@ def export_word(df, header_lines):
 
 def export_pdf(df, header_lines):
     buffer = BytesIO()
-
     pdf = SimpleDocTemplate(buffer, pagesize=landscape(A4))
     elements = []
     style = getSampleStyleSheet()
@@ -165,11 +168,18 @@ duty_date = st.date_input("Duty Date")
 
 num_slots = st.number_input("Number of Slots", min_value=1, max_value=10)
 
+# ⏰ AUTO CLOCK SLOT SYSTEM
+start_time = st.time_input("Exam Start Time")
+slot_duration = st.number_input("Slot Duration (minutes)", min_value=30, max_value=180, value=60)
+
 slot_timings = []
+current_time = datetime.combine(datetime.today(), start_time)
+
 for i in range(num_slots):
-    start = st.text_input(f"Slot {i+1} Start", key=f"s{i}")
-    end = st.text_input(f"Slot {i+1} End", key=f"e{i}")
-    slot_timings.append(f"{start}-{end}" if start and end else "")
+    end_time = current_time + timedelta(minutes=slot_duration)
+    formatted = f"{current_time.strftime('%I:%M %p')} - {end_time.strftime('%I:%M %p')}"
+    slot_timings.append(formatted)
+    current_time = end_time
 
 teachers_input = st.text_area("Teacher Names (comma separated)")
 rooms_input = st.text_area("Room Names (comma separated)")
